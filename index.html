@@ -1,0 +1,300 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0e1014"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Fretbook</title>
+<style>
+:root{--bg:#0e1014;--p:#171a21;--p2:#20242e;--t:#e8eaf0;--m:#8b93a7;--a:#ff9f43;--b:#2c3140}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px system-ui,sans-serif}
+header{display:flex;gap:6px;align-items:center;padding:10px 14px;background:var(--p);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+h1{font-size:18px;margin:0 12px 0 0;color:var(--a)}
+nav button{background:none;border:0;color:var(--m);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--p2);color:var(--t)}
+main{max-width:980px;margin:auto;padding:16px}
+button,select,input,textarea{font:inherit;color:var(--t);background:var(--p2);border:1px solid var(--b);border-radius:8px;padding:7px 10px}
+button{cursor:pointer}button.pr{background:var(--a);color:#111;border:0;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.card{background:var(--p);border:1px solid var(--b);border-radius:12px;padding:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.song{cursor:pointer}.song:hover{border-color:var(--a)}.song small{color:var(--m)}
+pre{font:14px/1.5 ui-monospace,Menlo,monospace;white-space:pre;overflow-x:auto;margin:0}
+.c{color:var(--a);font-weight:700;cursor:pointer}
+textarea{width:100%;min-height:260px;font-family:ui-monospace,monospace}
+#pop{position:fixed;display:none;z-index:9;background:var(--p);border:1px solid var(--a);border-radius:12px;padding:8px;text-align:center}
+svg text{fill:var(--t);font:11px system-ui}.hide{display:none}.strip{display:flex;gap:8px;overflow-x:auto;margin-bottom:10px}.sc{background:var(--p);border:1px solid var(--b);border-radius:10px;padding:4px;text-align:center;cursor:pointer;flex:none}.bar{height:4px;background:var(--p2);border-radius:2px;margin:4px 0}.bar i{display:block;height:100%;background:var(--a);border-radius:2px}.tg input{width:30px;text-align:center;padding:2px}.song{display:flex;gap:10px;align-items:center}.cv{width:48px;height:48px;border-radius:8px;object-fit:cover;background:var(--p2);display:flex;align-items:center;justify-content:center;flex:none}.tag{background:var(--p2);color:var(--a);border-radius:10px;padding:1px 8px;font-size:11px;margin-right:4px}.star{cursor:pointer;color:var(--b);font-size:20px}.star.on{color:var(--a)}a{color:var(--t)}
+</style></head><body>
+<header><h1>🎸 Fretbook</h1><nav id="nav"></nav></header><main id="m"></main><div id="pop"></div>
+<script>
+const N=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'],FL={Db:'C#',Eb:'D#',Gb:'F#',Ab:'G#',Bb:'A#'};
+const T={'':[0,4,7],m:[0,3,7],7:[0,4,7,10],maj7:[0,4,7,11],m7:[0,3,7,10],sus2:[0,2,7],sus4:[0,5,7],dim:[0,3,6],aug:[0,4,8],6:[0,4,7,9],m6:[0,3,7,9],9:[0,4,7,10,2],add9:[0,4,7,2],5:[0,7],dim7:[0,3,6,9],m7b5:[0,3,6,10],'7sus4':[0,5,7,10]};
+const OPEN=[4,9,2,7,11,4],MIDI=[40,45,50,55,59,64];
+const SC={Major:[0,2,4,5,7,9,11],Minor:[0,2,3,5,7,8,10],'Pentatonic Minor':[0,3,5,7,10],'Pentatonic Major':[0,2,4,7,9],Blues:[0,3,5,6,7,10],Dorian:[0,2,3,5,7,9,10],Mixolydian:[0,2,4,5,7,9,10],Phrygian:[0,1,3,5,7,8,10],Lydian:[0,2,4,6,7,9,11]};
+const $=(s,e=document)=>e.querySelector(s),esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let songs=[];try{songs=JSON.parse(localStorage.fb_songs||'[]')}catch(e){}
+const save=()=>{try{localStorage.fb_songs=JSON.stringify(songs)}catch(e){}};
+const opts=(a,s)=>a.map((x,i)=>`<option value="${i}" ${i==s?'selected':''}>${x}</option>`).join('');
+
+// ---- chord engine ----
+function voicings(root,suf){
+  const iv=T[suf],set=iv.map(i=>(root+i)%12),out=[],seen=new Set(),need=suf=='5'?2:4;
+  for(let base=0;base<=12;base++){
+    const o=OPEN.map(op=>{const r=[-1];if(base==0&&set.includes(op))r.push(0);
+      for(let f=Math.max(base,1);f<=base+3;f++)if(set.includes((op+f)%12))r.push(f);return r});
+    (function go(s,cur){
+      if(s==6){const snd=cur.filter(x=>x>=0);if(snd.length<need)return;
+        const first=cur.findIndex(x=>x>=0),last=cur.length-1-[...cur].reverse().findIndex(x=>x>=0);
+        if(cur.slice(first,last+1).includes(-1))return;
+        if((OPEN[first]+cur[first])%12!=root)return;
+        if(!set.every(n=>cur.some((f,i)=>f>=0&&(OPEN[i]+f)%12==n)))return;
+        const k=cur.join();if(!seen.has(k)){seen.add(k);const fr=snd.filter(x=>x>0);
+          out.push({v:[...cur],sc:(fr.length?Math.max(...fr)-Math.min(...fr):0)*2+cur.filter(x=>x<0).length*3+base*.3})}return}
+      for(const f of o[s])go(s+1,[...cur,f])})(0,[]);
+  }
+  return out.sort((a,b)=>a.sc-b.sc).slice(0,6).map(x=>x.v);
+}
+function svg(v,w=110){
+  const fr=v.filter(x=>x>0),mx=fr.length?Math.max(...fr):1,st=mx<=4?1:Math.min(...fr);
+  let s=`<svg width="${w}" height="${w*1.25}" viewBox="0 0 110 138">`;
+  for(let i=0;i<6;i++)s+=`<line x1="${20+i*14}" y1="26" x2="${20+i*14}" y2="122" stroke="#8b93a7"/>`;
+  for(let j=0;j<=4;j++)s+=`<line x1="20" y1="${26+j*24}" x2="90" y2="${26+j*24}" stroke="#8b93a7" stroke-width="${j==0&&st==1?4:1}"/>`;
+  if(st>1)s+=`<text x="2" y="42">${st}fr</text>`;
+  v.forEach((f,i)=>{const x=20+i*14;
+    if(f<0)s+=`<text x="${x-3}" y="18">×</text>`;else if(f==0)s+=`<circle cx="${x}" cy="14" r="4" fill="none" stroke="#e8eaf0"/>`;
+    else s+=`<circle cx="${x}" cy="${26+(f-st)*24+12}" r="6" fill="#ff9f43"/>`});
+  return s+'</svg>';
+}
+let ac;function play(v){ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+  v.forEach((f,i)=>{if(f<0)return;const t=ac.currentTime+i*.06,o=ac.createOscillator(),g=ac.createGain();
+    o.type='triangle';o.frequency.value=440*2**((MIDI[i]+f-69)/12);g.gain.setValueAtTime(.25,t);
+    g.gain.exponentialRampToValueAtTime(.001,t+1.6);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+1.7)})}
+const parse=t=>{const m=t.match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/);if(!m)return null;
+  let r=N.indexOf(FL[m[1]]||m[1]);let s=m[2];if(s=='maj'||s=='M')s='';if(s=='min')s='m';if(s=='M7')s='maj7';
+  return r<0||!(s in T)?null:{r,s,b:m[3]}};
+const CH=/^[A-G][#b]?(?:maj|min|m|dim|aug|sus|add)?[0-9]*(?:sus[24]|add\d+|[#b]\d+)*(?:\/[A-G][#b]?)?$/;
+function tr(tok,n){const m=tok.match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/);
+  const sh=x=>N[(N.indexOf(FL[x]||x)+n+120)%12];return sh(m[1])+m[2]+(m[3]?'/'+sh(m[3]):'')}
+
+// ---- views ----
+const uid=()=>Math.random().toString(36).slice(2,9);
+songs.forEach(s=>{s.id=s.id||uid();s.tags=s.tags||[]});
+let sets=[];try{sets=JSON.parse(localStorage.fb_sets||'[]')}catch(e){}
+const saveAll=()=>{try{localStorage.fb_songs=JSON.stringify(songs);localStorage.fb_sets=JSON.stringify(sets)}catch(e){}};
+const byId=id=>songs.find(s=>s.id==id),G=()=>window.google&&google.script&&google.script.run;
+const views={};let cur='songs';
+function nav(v){cur=v;$('#nav').innerHTML=[['songs','Songbook'],['sets','Setlists'],['chords','Chords'],['prog','Progressions'],['id','Identify'],['scales','Scales'],['learn','Learn'],['tab','Tab'],['studio','Studio'],['tuner','Tuner'],['tools','Tools']]
+  .map(([k,l])=>`<button class="${k==v?'on':''}" onclick="nav('${k}')">${l}</button>`).join('');if(v!='tuner')tunStop();if(v!='studio'&&sch){clearInterval(sch);sch=null}views[v]();}
+const cov=s=>s.cover?`<img class="cv" src="${s.cover}">`:`<div class="cv">🎵</div>`;
+
+// Songbook
+let fav=0,tag='';
+views.songs=()=>{const tg=[...new Set(songs.flatMap(s=>s.tags))];
+  $('#m').innerHTML=`<div class="row"><input id="q" placeholder="Search songs…" oninput="list()" style="flex:1;min-width:140px">
+  <select onchange="tag=this.value;list()"><option value="">All tags</option>${tg.map(t=>`<option ${t==tag?'selected':''}>${esc(t)}</option>`).join('')}</select>
+  <button onclick="fav=!fav;list()">★ Favorites</button><button class="pr" onclick="edit()">+ Add song</button></div>
+  <div class="row"><button onclick="exp()">Export</button><button onclick="$('#f').click()">Import</button><input id="f" type="file" class="hide" onchange="imp(this)">
+  </div><div class="grid" id="l"></div>`;list();};
+function list(){const q=($('#q').value||'').toLowerCase();
+  $('#l').innerHTML=songs.filter(s=>(s.title+s.artist).toLowerCase().includes(q)&&(!tag||s.tags.includes(tag))&&(!fav||s.fav))
+  .map(s=>`<div class="card song" onclick="view('${s.id}',1)">${cov(s)}<div style="flex:1;min-width:0"><b>${esc(s.title)}</b><br><small>${esc(s.artist||'')}</small><div class="bar"><i style="width:${s.pr||0}%"></i></div>${s.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+  <span class="star ${s.fav?'on':''}" onclick="event.stopPropagation();tf('${s.id}')">★</span></div>`).join('')||'<p style="color:var(--m)">No songs found.</p>';}
+function tf(id){const s=byId(id);s.fav=!s.fav;saveAll();views[cur]()}
+function clean(t){return t.replace(/\r/g,'').replace(/\[\/?(?:tab|ch|verse|chorus|intro)\]/gi,'').replace(/\[\/?\w+\]/g,'').replace(/\n{3,}/g,'\n\n')}
+let draft={};
+function edit(id){const s=byId(id)||{title:'',artist:'',body:'',tags:[],cover:''};draft={id:s.id,cover:s.cover||'',fav:s.fav};
+  $('#m').innerHTML=`<div class="card"><div class="row"><img id="cp" class="cv" style="width:72px;height:72px;${s.cover?'':'display:none'}" src="${s.cover||''}">
+  <input id="t" placeholder="Title" value="${esc(s.title)}"><input id="a" placeholder="Artist" value="${esc(s.artist)}"><input id="g" placeholder="Tags (comma separated)" value="${esc(s.tags.join(', '))}">
+  <button onclick="cover()">🖼 Auto cover</button><button onclick="$('#u').click()">Upload photo</button><input id="u" type="file" accept="image/*" class="hide" onchange="upl(this)"></div>
+  <p style="color:var(--m);margin:0 0 8px">Copy the chords/tab text from Ultimate Guitar and paste below. [ch] / [tab] tags are cleaned automatically.</p>
+  <textarea id="b">${esc(s.body)}</textarea><div class="row" style="margin-top:10px"><button class="pr" onclick="saveSong()">Save</button><button onclick="nav('songs')">Cancel</button>
+  ${s.id?`<button onclick="if(confirm('Delete?')){songs=songs.filter(x=>x.id!='${s.id}');sets.forEach(x=>x.ids=x.ids.filter(i=>i!='${s.id}'));saveAll();nav('songs')}">Delete</button>`:''}</div></div>`;}
+function saveSong(){const o={id:draft.id||uid(),title:$('#t').value||'Untitled',artist:$('#a').value,tags:$('#g').value.split(',').map(x=>x.trim()).filter(Boolean),cover:draft.cover,fav:draft.fav,body:clean($('#b').value)};
+  const i=songs.findIndex(x=>x.id==o.id);i<0?songs.unshift(o):songs[i]=o;saveAll();nav('songs');}
+function setCov(d){draft.cover=d;$('#cp').src=d;$('#cp').style.display=''}
+function cover(){const cb='ic'+Date.now();window[cb]=j=>{delete window[cb];const r=j.results&&j.results[0];if(!r)return alert('No cover found');const u=r.artworkUrl100.replace('100x100','200x200');
+  fetch(u).then(x=>x.blob()).then(b=>{const f=new FileReader();f.onload=()=>setCov(f.result);f.readAsDataURL(b)}).catch(()=>setCov(u))};
+  const e=document.createElement('script');e.src='https://itunes.apple.com/search?entity=song&limit=1&callback='+cb+'&term='+encodeURIComponent($('#a').value+' '+$('#t').value);
+  e.onerror=()=>alert('Could not reach iTunes (are you offline?)');document.head.appendChild(e)}
+function upl(el){const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=c.height=160;const s=Math.min(im.width,im.height);
+  c.getContext('2d').drawImage(im,(im.width-s)/2,(im.height-s)/2,s,s,0,0,160,160);setCov(c.toDataURL('image/jpeg',.8))};im.src=r.result};r.readAsDataURL(el.files[0])}
+
+// Viewer
+let ts=0,cp=0,md='b',sc=null,fs=14;
+const isCh=l=>l.trim()&&l.trim().split(/\s+/).every(x=>CH.test(x)),isTab=l=>/-{3,}|\|.*\|/.test(l);
+function view(id,reset){if(reset){ts=0;cp=0;md='b';hist(id)}clearInterval(sc);sc=null;const s=byId(id),out=[];
+  for(const l of s.body.split('\n')){const ch=isCh(l),hd=/^\s*\[.*\]\s*$/.test(l),tb=isTab(l);
+    if(md=='c'&&!(ch||tb||hd))continue;if(md=='l'&&(ch||tb))continue;
+    out.push(ch?esc(l).replace(/\S+/g,x=>{const t=tr(x,ts-cp);return `<span class="c" data-c="${t}">${t}</span>`}):esc(l))}
+  $('#m').innerHTML=`<div class="row">${cov(s)}<button onclick="nav('songs')">←</button><b style="flex:1">${esc(s.title)}<br><small style="color:var(--m)">${esc(s.artist)}</small></b>
+  <span class="star ${s.fav?'on':''}" onclick="tf('${id}')">★</span></div>
+  <div class="row"><button onclick="ts--;view('${id}')">−</button><span>Transpose ${ts>0?'+':''}${ts}</span><button onclick="ts++;view('${id}')">+</button>
+  <select onchange="cp=+this.value;view('${id}')">${[...Array(10).keys()].map(c=>`<option value="${c}" ${c==cp?'selected':''}>Capo ${c||'off'}</option>`).join('')}</select>
+  <select onchange="md=this.value;view('${id}')"><option value="b" ${md=='b'?'selected':''}>Chords + lyrics</option><option value="c" ${md=='c'?'selected':''}>Chords only</option><option value="l" ${md=='l'?'selected':''}>Lyrics only</option></select>
+  <button onclick="fs--;$('#pp').style.fontSize=fs+'px'">A−</button><button onclick="fs++;$('#pp').style.fontSize=fs+'px'">A+</button>
+  <button id="as" onclick="auto()">▶ Scroll</button>
+  <select onchange="addTo(+this.value,'${id}');this.value=''"><option value="">+ Setlist</option>${sets.map((x,i)=>`<option value="${i}">${esc(x.name)}</option>`).join('')}</select>
+  <button onclick="edit('${id}')">Edit</button></div>
+  ${cp?`<div style="color:var(--a);margin-bottom:8px">Capo on fret ${cp}: showing the shapes to play (sounds as written)</div>`:''}
+  ${extras(s)}<div class="card"><pre id="pp" style="font-size:${fs}px">${out.join('\n').replace(/\n{3,}/g,'\n\n')}</pre></div>${notes(s)}`;
+  $('#pp').onclick=e=>{const c=e.target.dataset.c;if(c)pop(c,e)};}
+function auto(){if(sc){clearInterval(sc);sc=null;$('#as').textContent='▶ Scroll'}else{sc=setInterval(()=>scrollBy(0,1),60);$('#as').textContent='⏸ Stop'}}
+function pop(c,e){const p=parse(c);if(!p)return;const v=voicings(p.r,p.s)[0];if(!v)return;
+  const el=$('#pop');el.innerHTML=`<b>${c}</b><br>${svg(v,90)}<br><button onclick="play([${v}])">▶ Play</button>`;
+  el.style.display='block';el.style.left=Math.min(e.clientX,innerWidth-130)+'px';el.style.top=Math.min(e.clientY+10,innerHeight-190)+'px';e.stopPropagation()}
+document.addEventListener('click',e=>{if(!e.target.closest('#pop'))$('#pop').style.display='none'});
+function exp(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({songs,sets})]));a.download='fretbook.json';a.click()}
+function load(d){const a=Array.isArray(d)?d:d.songs||[];a.forEach(s=>{s.id=s.id||uid();s.tags=s.tags||[];if(!byId(s.id))songs.push(s)});
+  (d.sets||[]).forEach(x=>{if(!sets.some(y=>y.name==x.name))sets.push(x)});saveAll()}
+function imp(el){const r=new FileReader();r.onload=()=>{try{load(JSON.parse(r.result));nav('songs')}catch(e){alert('Invalid file')}};r.readAsText(el.files[0])}
+function drive(up){if(!G())return alert('Drive sync works when deployed via Apps Script.');
+  if(up)G().withSuccessHandler(()=>alert('Saved to Drive')).saveSongs(JSON.stringify({songs,sets}));
+  else G().withSuccessHandler(j=>{load(JSON.parse(j));nav('songs')}).loadSongs()}
+
+// Setlists
+views.sets=()=>{$('#m').innerHTML=`<div class="row"><input id="sn" placeholder="New setlist name"><button class="pr" onclick="if($('#sn').value){sets.push({name:$('#sn').value,ids:[]});saveAll();nav('sets')}">Create</button></div>`+
+  sets.map((s,si)=>`<div class="card" style="margin-bottom:12px"><div class="row"><b style="flex:1">${esc(s.name)} <small style="color:var(--m)">${s.ids.length} songs</small></b>
+  <select onchange="addTo(${si},this.value);nav('sets')"><option value="">+ add song</option>${songs.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join('')}</select>
+  <button onclick="if(confirm('Delete setlist?')){sets.splice(${si},1);saveAll();nav('sets')}">Delete</button></div>
+  ${s.ids.map((id,k)=>{const x=byId(id);return x?`<div class="row" style="margin:4px 0"><span style="width:22px;color:var(--m)">${k+1}</span><a style="flex:1;cursor:pointer" onclick="view('${id}',1)">${esc(x.title)} <small style="color:var(--m)">${esc(x.artist||'')}</small></a>
+  <button onclick="mv(${si},${k},-1)">↑</button><button onclick="mv(${si},${k},1)">↓</button><button onclick="sets[${si}].ids.splice(${k},1);saveAll();nav('sets')">✕</button></div>`:''}).join('')}</div>`).join('')};
+function addTo(si,id){if(si===''||id==='')return;const l=sets[si].ids;if(!l.includes(id))l.push(id);saveAll()}
+function mv(si,k,d){const l=sets[si].ids,j=k+d;if(j<0||j>=l.length)return;[l[k],l[j]]=[l[j],l[k]];saveAll();nav('sets')}
+
+// Chords / identify / scales
+views.chords=()=>{$('#m').innerHTML=`<div class="row"><select id="r" onchange="cv()">${opts(N,0)}</select>
+  <select id="ty" onchange="cv()">${Object.keys(T).map(k=>`<option value="${k}">${k||'major'}</option>`).join('')}</select></div><div class="grid" id="o"></div>`;cv()};
+function cv(){const r=+$('#r').value,s=$('#ty').value;$('#o').innerHTML=voicings(r,s).map(v=>
+  `<div class="card" style="text-align:center;display:block"><b>${N[r]}${s}</b><br>${svg(v)}<br><button onclick="play([${v}])">▶</button></div>`).join('')+
+  `<div class="card" style="grid-column:1/-1;display:block">Notes: <b>${T[s].map(i=>N[(r+i)%12]).join(' · ')}</b></div>`}
+views.id=()=>{$('#m').innerHTML=`<p style="color:var(--m)">Pick the fret on each string (low E → high e) to identify the chord.</p><div class="row">`+
+  OPEN.map(()=>`<select class="fs">${'<option value="-1">×</option>'+[...Array(16).keys()].map(x=>`<option value="${x}" ${x==0?'selected':''}>${x}</option>`).join('')}</select>`).join('')+
+  `<button class="pr" onclick="ident()">Identify</button></div><div id="o" class="card" style="display:block">—</div>`};
+function ident(){const v=[...document.querySelectorAll('.fs')].map(e=>+e.value),
+  pcs=new Set(v.map((f,i)=>f<0?null:(OPEN[i]+f)%12).filter(x=>x!=null)),res=[];
+  for(let r=0;r<12;r++)for(const s in T){const set=new Set(T[s].map(i=>(r+i)%12));if(set.size==pcs.size&&[...set].every(n=>pcs.has(n)))res.push(N[r]+s)}
+  $('#o').innerHTML=res.length?'<b>'+res.join(', ')+`</b><br>${svg(v)}<br><button onclick="play([${v}])">▶ Play</button>`:'No match found'}
+views.scales=()=>{$('#m').innerHTML=`<div class="row"><select id="r" onchange="sv()">${opts(N,0)}</select><select id="sn" onchange="sv()">${Object.keys(SC).map(k=>`<option>${k}</option>`).join('')}</select></div><div class="card" id="o" style="overflow-x:auto;display:block"></div>`;sv()};
+function sv(){const r=+$('#r').value,iv=SC[$('#sn').value],set=iv.map(i=>(r+i)%12);let s=`<svg width="760" height="170" viewBox="0 0 760 170">`;
+  for(let f=0;f<=12;f++)s+=`<line x1="${30+f*56}" y1="20" x2="${30+f*56}" y2="145" stroke="#8b93a7" stroke-width="${f==0?4:1}"/><text x="${26+f*56}" y="165">${f}</text>`;
+  for(let i=0;i<6;i++){const y=20+(5-i)*25;s+=`<line x1="30" y1="${y}" x2="702" y2="${y}" stroke="#8b93a7"/>`;
+    for(let f=0;f<=12;f++){const n=(OPEN[i]+f)%12,x=f?30+f*56-28:14;if(set.includes(n))s+=`<circle cx="${x}" cy="${y}" r="9" fill="${n==r?'#ff9f43':'#3d8bfd'}"/><text x="${x-6}" y="${y+4}" style="fill:#111;font-size:10px">${N[n]}</text>`}}
+  $('#o').innerHTML=s+'</svg><p>Notes: <b>'+set.map(n=>N[n]).join(' · ')+'</b></p>'}
+
+// Progressions
+const PR={'I–V–vi–IV':[0,4,5,3],'vi–IV–I–V':[5,3,0,4],'I–vi–IV–V':[0,5,3,4],'ii–V–I':[1,4,0],'I–IV–V':[0,3,4],'I–IV–V–IV':[0,3,4,3],'I–iii–IV–V':[0,2,3,4],'12-bar blues':[0,0,0,0,3,3,0,0,4,3,0,4]};
+const MAJ=[0,2,4,5,7,9,11],MIN=[0,2,3,5,7,8,10],Q={a:['','m','m','','','m','dim'],b:['maj7','m7','m7','maj7','7','m7','m7b5'],c:['m','dim','','m','m','',''],d:['m7','m7b5','maj7','m7','m7','maj7','7']};
+let pk=0,pm=0,p7=0,pn='I–V–vi–IV';
+const diat=()=>(pm?MIN:MAJ).map((x,i)=>({r:(pk+x)%12,s:Q[pm?(p7?'d':'c'):(p7?'b':'a')][i]}));
+const pv=c=>voicings(c.r,c.s)[0]||[-1,-1,-1,-1,-1,-1];
+views.prog=()=>{$('#m').innerHTML=`<div class="row"><select onchange="pk=+this.value;pg()">${opts(N,pk)}</select><select onchange="pm=+this.value;pg()"><option value="0">Major</option><option value="1" ${pm?'selected':''}>Minor</option></select>
+  <label><input type="checkbox" ${p7?'checked':''} onchange="p7=+this.checked;pg()"> 7ths</label>
+  <select onchange="pn=this.value;pg()">${Object.keys(PR).map(k=>`<option ${k==pn?'selected':''}>${k}</option>`).join('')}</select>
+  <button class="pr" onclick="playProg()">▶ Play</button><button onclick="saveProg()">Save as song</button></div><div class="grid" id="pgo"></div><h3>Chords in this key</h3><div class="grid" id="pgd"></div>`;pg()};
+const pch=()=>{const d=diat();return PR[pn].map(i=>pn=='12-bar blues'?{r:d[i].r,s:'7'}:d[i])};
+const nm=c=>N[c.r]+c.s,box=(c,i)=>`<div class="card" style="text-align:center;display:block"><b>${nm(c)}</b><br>${svg(pv(c),90)}<br><button onclick="play([${pv(c)}])">▶</button></div>`;
+function pg(){$('#pgo').innerHTML=pch().map(box).join('');$('#pgd').innerHTML=diat().map(box).join('')}
+function playProg(){pch().forEach((c,i)=>setTimeout(()=>play(pv(c)),i*1100))}
+function saveProg(){const l=pch().map(nm),b=[];for(let i=0;i<l.length;i+=4)b.push(l.slice(i,i+4).join('   '));
+  songs.unshift({id:uid(),title:`${N[pk]}${pm?'m':''} ${pn}`,artist:'Progression',tags:['progression'],cover:'',body:b.join('\n'),fav:false});saveAll();alert('Saved to Songbook')}
+
+// Tuner
+const TS=['E2','A2','D3','G3','B3','E4'];let tS=null,tR=0;
+views.tuner=()=>{$('#m').innerHTML=`<div class="card" style="text-align:center;display:block"><div class="row" style="justify-content:center">${TS.map((n,i)=>`<button onclick="var v=[-1,-1,-1,-1,-1,-1];v[${i}]=0;play(v)">${n}</button>`).join('')}</div>
+  <h1 id="tn" style="font-size:64px;margin:8px">–</h1><div id="tf" style="color:var(--m)">Tap Start, then play a string</div>
+  <div style="position:relative;height:14px;background:var(--p2);border-radius:7px;margin:18px 10%"><div id="nd" style="position:absolute;left:50%;top:-4px;width:4px;height:22px;background:var(--a);border-radius:2px"></div></div>
+  <button class="pr" id="tb" onclick="tun()">🎤 Start</button><p id="te" style="color:var(--m)"></p></div>`};
+function tunStop(){if(tS){tS.getTracks().forEach(t=>t.stop());tS=null;cancelAnimationFrame(tR);const b=$('#tb');if(b)b.textContent='🎤 Start'}}
+function pitch(b,sr){let r=0;for(const x of b)r+=x*x;if(Math.sqrt(r/b.length)<.01)return -1;
+  const lo=Math.floor(sr/1000),hi=Math.floor(sr/70),n=b.length,c=[];
+  for(let l=lo;l<hi;l++){let s=0;for(let i=0;i<n-l;i++)s+=b[i]*b[i+l];c[l]=s}
+  let d=lo;while(d<hi&&c[d]>c[d+1])d++;let mx=-1e9,best=-1;for(let l=d;l<hi;l++)if(c[l]>mx){mx=c[l];best=l}
+  return best<1?-1:sr/best}
+async function tun(){if(tS)return tunStop();
+  try{tS=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){$('#te').textContent='Microphone blocked. Apps Script pages usually cannot use the mic: open Index.html as a standalone file, or use the reference tones above.';return}
+  ac=ac||new (window.AudioContext||window.webkitAudioContext)();const an=ac.createAnalyser();an.fftSize=2048;ac.createMediaStreamSource(tS).connect(an);
+  const buf=new Float32Array(2048);$('#tb').textContent='⏹ Stop';
+  (function loop(){tR=requestAnimationFrame(loop);an.getFloatTimeDomainData(buf);const f=pitch(buf,ac.sampleRate);if(f<0)return;
+    const m=69+12*Math.log2(f/440),r=Math.round(m),c=(m-r)*100;$('#tn').textContent=N[(r%12+12)%12]+Math.floor(r/12-1);
+    $('#tf').textContent=f.toFixed(1)+' Hz  '+(c>0?'+':'')+c.toFixed(0)+' cents';$('#nd').style.left=(50+Math.max(-50,Math.min(50,c)))+'%';$('#tn').style.color=Math.abs(c)<5?'#2ecc71':'var(--t)'})()}
+
+// Tools: metronome + capo calculator
+let bpm=100,mt=null;
+views.tools=()=>{$('#m').innerHTML=`<div class="card" style="text-align:center;display:block;margin-bottom:12px"><h2 id="bp">${bpm} BPM</h2><input type="range" min="40" max="220" value="${bpm}" oninput="bpm=+this.value;$('#bp').textContent=bpm+' BPM';if(mt)met(0,1)" style="width:80%"><br><br><button class="pr" onclick="met(1)">Start / Stop</button></div>
+  <div class="card" style="display:block"><b>Capo calculator</b><p style="color:var(--m)">Enter the chords as written (e.g. <i>Bm G D A</i>) to see easier shapes for each capo position.</p>
+  <input id="cc" placeholder="Bm G D A" oninput="capo()" style="width:100%"><div id="co" style="margin-top:10px"></div></div>`};
+function capo(){const t=$('#cc').value.trim().split(/\s+/).filter(x=>CH.test(x));
+  $('#co').innerHTML=t.length?[...Array(8).keys()].map(c=>`<div class="row" style="margin:4px 0"><b style="width:70px">Capo ${c||'off'}</b><span class="c">${t.map(x=>tr(x,-c)).join('   ')}</span></div>`).join(''):''}
+function met(t,keep){clearInterval(mt);if(t&&window._m){window._m=0;mt=null;return}window._m=1;ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+  mt=setInterval(()=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+.05)},60000/bpm)}
+
+// ---- song extras: key, strip, progress, notes, history, share ----
+function hist(id){const s=byId(id),d=day();s.hist=s.hist||[];if(s.hist[s.hist.length-1]!=d)s.hist.push(d);s.hist=s.hist.slice(-30);s.opens=(s.opens||0)+1;saveAll()}
+function chordsOf(s){const u=[];s.body.split('\n').forEach(l=>{if(isCh(l))l.trim().split(/\s+/).forEach(x=>{const t=tr(x,ts-cp);if(!u.includes(t))u.push(t)})});return u}
+const qOf=m=>m.startsWith('dim')||m=='m7b5'?'dim':m[0]=='m'&&!m.startsWith('maj')?'m':'',c0=(c,r,m)=>c.r==r&&qOf(c.s)==(m?'m':'');
+function keyOf(s){const cs=[];s.body.split('\n').forEach(l=>{if(isCh(l))l.trim().split(/\s+/).forEach(x=>{const p=parse(x);if(p)cs.push(p)})});if(!cs.length)return'–';
+  let b='',bs=-1;for(let r=0;r<12;r++)for(const m of[0,1]){const d=(m?MIN:MAJ).map((x,i)=>[(r+x)%12,Q[m?'c':'a'][i]]);let n=0;
+    cs.forEach(c=>{if(d.some(([k,q])=>k==c.r&&q==qOf(c.s)))n++});if(c0(cs[0],r,m))n+=2;if(c0(cs[cs.length-1],r,m))n+=2;if(n>bs){bs=n;b=N[(r+ts)%12]+(m?' minor':' major')}}return b}
+function extras(s){return `<div class="row" style="color:var(--m)">Key: <b style="color:var(--t)">${keyOf(s)}</b> · opened ${s.opens||0}×${s.hist&&s.hist.length?' · last '+s.hist[s.hist.length-1]:''}
+  <label style="margin-left:auto">Learned <input type="range" value="${s.pr||0}" onchange="byId('${s.id}').pr=+this.value;saveAll()"></label><button onclick="share('${s.id}')">🔗 Share</button></div>
+  <div class="strip">${chordsOf(s).map(c=>{const p=parse(c),v=p&&voicings(p.r,p.s)[0];return v?`<div class="sc" onclick="play([${v}])"><b>${c}</b><br>${svg(v,56)}</div>`:''}).join('')}</div>`}
+const notes=s=>`<div class="card" style="margin-top:12px;display:block"><b>Notes</b><textarea style="min-height:70px" onchange="byId('${s.id}').notes=this.value;saveAll()">${esc(s.notes||'')}</textarea></div>`;
+function share(id){const s=byId(id),d=btoa(unescape(encodeURIComponent(JSON.stringify({title:s.title,artist:s.artist,tags:s.tags,body:s.body}))));
+  const done=b=>{const u=b+'?s='+d;if(navigator.clipboard)navigator.clipboard.writeText(u).catch(()=>{});prompt('Share link (copied if allowed). Very long songs may exceed URL limits:',u)};
+  G()?G().withSuccessHandler(done).getUrl():done(location.href.split('#')[0].split('?')[0])}
+const sh=window.SH||new URLSearchParams(location.search).get('s');
+if(sh)try{const o=JSON.parse(decodeURIComponent(escape(atob(sh.replace(/ /g,'+')))));if(confirm('Add shared song "'+o.title+'"?')){songs.unshift({...o,id:uid(),cover:'',fav:0});saveAll()}}catch(e){}
+
+// ---- Learn: timer, quiz, ear training ----
+let ls='t',pl={};try{pl=JSON.parse(localStorage.fb_prac||'{}')}catch(e){}
+let tm=null,t0=0,qs=[0,0],qa,es=[0,0],ea,em='i';
+const day=(d=new Date())=>d.toISOString().slice(0,10);
+views.learn=()=>{$('#m').innerHTML=`<div class="row">${[['t','Practice timer'],['q','Chord quiz'],['e','Ear training']].map(([k,l])=>`<button class="${k==ls?'pr':''}" onclick="ls='${k}';views.learn()">${l}</button>`).join('')}</div><div id="lb" class="card" style="display:block"></div>`;
+  ({t:timer,q:quiz,e:ear})[ls]()};
+function streak(){let n=0,d=new Date();if(!pl[day(d)])d.setDate(d.getDate()-1);while(pl[day(d)]>0){n++;d.setDate(d.getDate()-1)}return n}
+function timer(){const dd=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return[day(d).slice(5),pl[day(d)]||0]});
+  $('#lb').innerHTML=`<h1 id="tc" style="text-align:center;font-size:56px;margin:0">${tm?'…':'00:00'}</h1><div style="text-align:center;margin:10px"><button class="pr" onclick="tmr()">${tm?'Stop & save':'Start'}</button></div>
+  <p>🔥 Streak: <b>${streak()} days</b> · Today: <b>${Math.round(pl[day()]||0)} min</b></p><div class="row" style="align-items:flex-end;height:120px">${dd.map(([d,m])=>`<div style="text-align:center;flex:1"><div style="background:var(--a);height:${Math.min(80,m*2)}px;border-radius:4px"></div><small>${d}<br>${Math.round(m)}m</small></div>`).join('')}</div>`}
+function tmr(){if(tm){clearInterval(tm);tm=null;pl[day()]=(pl[day()]||0)+(Date.now()-t0)/60000;try{localStorage.fb_prac=JSON.stringify(pl)}catch(e){}}
+  else{t0=Date.now();tm=setInterval(()=>{const x=Math.floor((Date.now()-t0)/1000),e=$('#tc');if(e)e.textContent=String(Math.floor(x/60)).padStart(2,'0')+':'+String(x%60).padStart(2,'0')},500)}timer()}
+function quiz(){const ks=['','m','7','maj7','m7','sus4','sus2','dim'],mk=()=>({r:Math.floor(Math.random()*12),s:ks[Math.floor(Math.random()*ks.length)]});
+  qa=mk();const o=[qa];while(o.length<4){const c=mk();if(!o.some(x=>nm(x)==nm(c)))o.push(c)}o.sort(()=>Math.random()-.5);const v=pv(qa);
+  $('#lb').innerHTML=`<div style="text-align:center">Score ${qs[0]}/${qs[1]}<br>${svg(v,130)}<br><button onclick="play([${v}])">▶ Hear</button><div class="row" style="justify-content:center;margin-top:10px">${o.map(c=>`<button onclick="ans(${c.r},'${c.s}')">${nm(c)}</button>`).join('')}</div><div id="fb"></div></div>`}
+function ans(r,x){qs[1]++;if(r==qa.r&&x==qa.s){qs[0]++;quiz()}else $('#fb').innerHTML=`<p>❌ It was <b>${nm(qa)}</b></p><button class="pr" onclick="quiz()">Next</button>`}
+const IV={'Minor 2nd':1,'Major 2nd':2,'Minor 3rd':3,'Major 3rd':4,'Perfect 4th':5,'Tritone':6,'Perfect 5th':7,'Octave':12},CQ={Major:[0,4,7],Minor:[0,3,7],Dominant7:[0,4,7,10],Diminished:[0,3,6],Sus4:[0,5,7]};
+function tone(m,t,d=1){ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain(),s=ac.currentTime+t;o.type='triangle';o.frequency.value=440*2**((m-69)/12);
+  g.gain.setValueAtTime(.3,s);g.gain.exponentialRampToValueAtTime(.001,s+d);o.connect(g).connect(ac.destination);o.start(s);o.stop(s+d+.05)}
+function ear(){const D=em=='i'?IV:CQ,k=Object.keys(D);if(!ea)ea=[k[Math.floor(Math.random()*k.length)],48+Math.floor(Math.random()*12)];hear();
+  $('#lb').innerHTML=`<div class="row"><button class="${em=='i'?'pr':''}" onclick="em='i';ea=0;ear()">Intervals</button><button class="${em=='c'?'pr':''}" onclick="em='c';ea=0;ear()">Chord quality</button><button onclick="hear()">🔁 Replay</button></div>Score ${es[0]}/${es[1]}<div class="row" style="margin-top:10px">${k.map(x=>`<button onclick="eans('${x}')">${x}</button>`).join('')}</div><div id="fb"></div>`}
+function hear(){const D=em=='i'?IV:CQ,b=ea[1];em=='i'?[0,D[ea[0]]].forEach((x,i)=>tone(b+x,i*.8,.9)):D[ea[0]].forEach(x=>tone(b+x,0,1.5))}
+function eans(x){es[1]++;if(x==ea[0]){es[0]++;$('#fb').innerHTML='✅ Correct!';setTimeout(()=>{ea=0;ear()},700)}else $('#fb').innerHTML=`❌ It was <b>${ea[0]}</b> <button onclick="ea=0;ear()">Next</button>`}
+
+// ---- Tab editor ----
+let tg=Array.from({length:6},()=>Array(16).fill(''));
+const tx=()=>['e','B','G','D','A','E'].map((n,r)=>n+'|'+tg[r].map(v=>(v||'-').padEnd(2,'-')).join('-')+'|').join('\n');
+views.tab=()=>{$('#m').innerHTML=`<div class="card tg" style="display:block;overflow-x:auto"><div class="row"><b>Tab editor</b><span style="color:var(--m)">Type fret numbers in the grid</span><button onclick="tg=tg.map(r=>r.map(()=>''));views.tab()">Clear</button></div>`+
+  ['e','B','G','D','A','E'].map((n,r)=>`<div style="white-space:nowrap"><b style="display:inline-block;width:18px">${n}</b>${tg[r].map((v,c)=>`<input value="${v}" maxlength="2" oninput="tg[${r}][${c}]=this.value;tout()">`).join('')}</div>`).join('')+
+  `<pre id="to" style="margin:12px 0"></pre><div class="row"><input id="tt" placeholder="Title"><button class="pr" onclick="tsave()">Save to songbook</button><button onclick="navigator.clipboard&&navigator.clipboard.writeText(tx())">Copy</button></div></div>`;tout()};
+function tout(){$('#to').textContent=tx()}
+function tsave(){songs.unshift({id:uid(),title:$('#tt').value||'My tab',artist:'',tags:['tab'],cover:'',body:tx(),fav:0});saveAll();alert('Saved to Songbook')}
+
+// ---- Studio: strumming, drums, looper ----
+let sp=['D','','D','U','','U','D','U'],dr='rock',sch=null,sci=0,schord='G',mr,rc=[];
+const DR={rock:{k:[1,0,0,0,1,0,0,0],s:[0,0,1,0,0,0,1,0],h:[1,1,1,1,1,1,1,1]},pop:{k:[1,0,0,1,0,0,1,0],s:[0,0,1,0,0,0,1,0],h:[1,0,1,0,1,0,1,0]},disco:{k:[1,0,1,0,1,0,1,0],s:[0,0,1,0,0,0,1,0],h:[0,1,0,1,0,1,0,1]},ballad:{k:[1,0,0,0,1,0,0,0],s:[0,0,0,0,1,0,0,0],h:[1,0,1,0,1,0,1,0]},none:{k:[],s:[],h:[]}};
+function dh(t,y){ac=ac||new (window.AudioContext||window.webkitAudioContext)();const g=ac.createGain();g.connect(ac.destination);
+  if(y=='k'){const o=ac.createOscillator();o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(40,t+.15);g.gain.setValueAtTime(.8,t);g.gain.exponentialRampToValueAtTime(.001,t+.2);o.connect(g);o.start(t);o.stop(t+.25)}
+  else{const b=ac.createBuffer(1,4410,44100),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const n=ac.createBufferSource(),f=ac.createBiquadFilter();n.buffer=b;f.type='highpass';f.frequency.value=y=='s'?1500:7000;
+    g.gain.setValueAtTime(y=='s'?.4:.15,t);g.gain.exponentialRampToValueAtTime(.001,t+(y=='s'?.12:.04));n.connect(f).connect(g);n.start(t)}}
+function seq(){if(sch){clearInterval(sch);sch=null;const b=$('#sb');if(b)b.textContent='▶ Play';return}ac=ac||new (window.AudioContext||window.webkitAudioContext)();sci=0;$('#sb').textContent='⏹ Stop';
+  sch=setInterval(()=>{const i=sci++%8,t=ac.currentTime,D=DR[dr],p=parse(schord),v=p&&voicings(p.r,p.s)[0];
+    if(D.k[i])dh(t,'k');if(D.s[i])dh(t,'s');if(D.h[i])dh(t,'h');
+    if(sp[i]&&v)v.forEach((f,j)=>{if(f>=0)tone(MIDI[j]+f,(sp[i]=='D'?j:5-j)*.03,.9)})},30000/bpm)}
+views.studio=()=>{$('#m').innerHTML=`<div class="card" style="display:block"><b>Strumming + drums</b><div class="row" style="margin-top:8px">Chord <input value="${schord}" size="5" oninput="schord=this.value"> Drums <select onchange="dr=this.value">${Object.keys(DR).map(k=>`<option ${k==dr?'selected':''}>${k}</option>`).join('')}</select>
+  BPM <input type="number" value="${bpm}" style="width:70px" oninput="bpm=+this.value||100;if(sch){seq();seq()}"><button class="pr" id="sb" onclick="seq()">▶ Play</button></div>
+  <div class="row">${sp.map((x,i)=>`<button onclick="sp[${i}]={D:'U',U:'','':'D'}[sp[${i}]];views.studio()" style="width:44px;height:44px;font-size:20px">${{D:'↓',U:'↑','':'·'}[x]}</button>`).join('')}</div>
+  <small style="color:var(--m)">Tap a step to cycle down / up / rest. 8 steps = one bar of eighth notes.</small></div>
+  <div class="card" style="display:block;margin-top:12px"><b>Looper</b><div class="row" style="margin-top:8px"><button id="rb" onclick="rec()">⏺ Record</button><label><input type="checkbox" onchange="$('#au').loop=this.checked"> Loop playback</label></div>
+  <audio id="au" controls style="width:100%"></audio><p id="re" style="color:var(--m)">Recordings last until you close the page.</p></div>`;if(sch)$('#sb').textContent='⏹ Stop'};
+async function rec(){if(mr&&mr.state=='recording')return mr.stop();
+  try{const s=await navigator.mediaDevices.getUserMedia({audio:true});mr=new MediaRecorder(s);rc=[];mr.ondataavailable=e=>rc.push(e.data);
+    mr.onstop=()=>{s.getTracks().forEach(t=>t.stop());$('#au').src=URL.createObjectURL(new Blob(rc));$('#rb').textContent='⏺ Record'};mr.start();$('#rb').textContent='⏹ Stop'}
+  catch(e){$('#re').textContent='Microphone blocked. Open Index.html as a standalone file to record.'}}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+nav('songs');
+</script></body></html>
